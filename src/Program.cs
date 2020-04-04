@@ -37,10 +37,10 @@ namespace WindowsService
                 {
                     services.AddApplicationInsightsTelemetryWorkerService(o =>
                     {
-                    o.EnableDebugLogger = true;
-                    o.EnablePerformanceCounterCollectionModule = true;
-                    o.AddAutoCollectedMetricExtractor = true;
-                    );
+                        o.EnableDebugLogger = true;
+                        o.EnablePerformanceCounterCollectionModule = true;
+                        o.AddAutoCollectedMetricExtractor = true;
+                    });
                     services.AddHostedService<Worker>();
                 });
     }
