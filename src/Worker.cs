@@ -8,9 +8,12 @@ using System;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.ApplicationInsights;
+using Microsoft.ApplicationInsights.DataContracts;
 using Microsoft.Azure.ServiceBus;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using SMSWorker;
 
 //SET ApplicationInsights:InstrumentationKey=putinstrumentationkeyhere 
 
@@ -19,16 +22,23 @@ namespace WindowsService
     public class Worker : BackgroundService
     {
         private readonly ILogger<Worker> _logger;
-        const string ServiceBusConnectionString = "<your_connection_string>";
-        const string QueueName = "<your_queue_name>";
+        const string ServiceBusConnectionString = "Endpoint=sb://sb-auxiliocovid-token-prd.servicebus.windows.net/;SharedAccessKeyName=sb-receiver;SharedAccessKey=yLix8SiYmlw91lcV8Uh8lYT0lKL8w7rftxbghkdc+Fw=;";
+        const string QueueName = "queueauxiliocovidtokenprd";
         static IQueueClient queueClient;
+        private TelemetryClient telemetryClient;
 
-        public Worker(ILogger<Worker> logger)
+        public Worker(ILogger<Worker> logger, TelemetryClient _telemetryClient)
         {
             _logger = logger;
             queueClient = new QueueClient(ServiceBusConnectionString, QueueName);
+            telemetryClient = _telemetryClient;
 
             RegisterOnMessageHandlerAndReceiveMessages();
+
+            for (int i = 0; i < 100; i++)
+            {
+                SMSBusSender.Test();
+            }
         }
 
 
@@ -39,7 +49,7 @@ namespace WindowsService
             {
                 // Maximum number of Concurrent calls to the callback `ProcessMessagesAsync`, set to 1 for simplicity.
                 // Set it according to how many messages the application wants to process in parallel.
-                MaxConcurrentCalls = 1,
+                MaxConcurrentCalls = 5,
 
                 // Indicates whether MessagePump should automatically complete the messages after returning from User Callback.
                 // False below indicates the Complete will be handled by the User Callback as in `ProcessMessagesAsync` below.
@@ -52,22 +62,48 @@ namespace WindowsService
 
         async Task ProcessMessagesAsync(Message message, CancellationToken token)
         {
+            RequestTelemetry requestTelemetry = new RequestTelemetry { Name = "Envio SMS para API: "};
+            //var rootId = message.UserProperties["RootId"].ToString();
+            //var parentId = message.UserProperties["ParentId"].ToString();
+            //// Get the operation ID from the Request-Id (if you follow the HTTP Protocol for Correlation).
+            //requestTelemetry.Context.Operation.Id = rootId;
+            //requestTelemetry.Context.Operation.ParentId = parentId;
+
             // Process the message
             Console.WriteLine($"Received message: SequenceNumber:{message.SystemProperties.SequenceNumber} Body:{Encoding.UTF8.GetString(message.Body)}");
 
+            var operation = telemetryClient.StartOperation(requestTelemetry);
 
-            //TODO: Implementar o envio de SMS
+            try
+            {
+                
+               
 
 
+                int i = 100 / new Random().Next(0, 5);
 
+                //TODO: Implementar o envio de SMS
+                await Task.Delay(1000);
 
-            // Complete the message so that it is not received again.
-            // This can be done only if the queueClient is created in ReceiveMode.PeekLock mode (which is default).
-            await queueClient.CompleteAsync(message.SystemProperties.LockToken);
+                // Complete the message so that it is not received again.
+                // This can be done only if the queueClient is created in ReceiveMode.PeekLock mode (which is default).
+                await queueClient.CompleteAsync(message.SystemProperties.LockToken);
 
-            // Note: Use the cancellationToken passed as necessary to determine if the queueClient has already been closed.
-            // If queueClient has already been Closed, you may chose to not call CompleteAsync() or AbandonAsync() etc. calls 
-            // to avoid unnecessary exceptions.
+                // Note: Use the cancellationToken passed as necessary to determine if the queueClient has already been closed.
+                // If queueClient has already been Closed, you may chose to not call CompleteAsync() or AbandonAsync() etc. calls 
+                // to avoid unnecessary exceptions.
+                operation.Telemetry.Success = true;
+            }
+            catch (Exception ex)
+            {
+                operation.Telemetry.Success = false;
+                telemetryClient.TrackException(ex);
+            }
+            finally
+            {
+                telemetryClient.StopOperation(operation);
+            }
+
         }
 
         Task ExceptionReceivedHandler(ExceptionReceivedEventArgs exceptionReceivedEventArgs)

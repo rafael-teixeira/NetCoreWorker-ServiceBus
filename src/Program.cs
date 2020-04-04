@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.ApplicationInsights;
+using Microsoft.Extensions.Logging.ApplicationInsights;
 
 namespace WindowsService
 {
@@ -25,11 +26,21 @@ namespace WindowsService
         public static IHostBuilder CreateHostBuilder(string[] args) =>
 
             Host.CreateDefaultBuilder(args)
-                .ConfigureLogging(configure => configure.AddApplicationInsights())
+                .ConfigureLogging(builder =>
+                {
+                    builder.AddApplicationInsights();
+                    builder.AddFilter<Microsoft.Extensions.Logging.ApplicationInsights.ApplicationInsightsLoggerProvider>
+                                 ("", LogLevel.Information);
+                })
                 .UseWindowsService()
                 .ConfigureServices((hostContext, services) =>
                 {
-                    services.AddApplicationInsightsTelemetryWorkerService();
+                    services.AddApplicationInsightsTelemetryWorkerService(o =>
+                    {
+                    o.EnableDebugLogger = true;
+                    o.EnablePerformanceCounterCollectionModule = true;
+                    o.AddAutoCollectedMetricExtractor = true;
+                    );
                     services.AddHostedService<Worker>();
                 });
     }
