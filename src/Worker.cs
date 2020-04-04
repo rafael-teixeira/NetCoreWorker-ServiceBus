@@ -22,6 +22,7 @@ namespace WindowsService
     public class Worker : BackgroundService
     {
         private readonly ILogger<Worker> _logger;
+        private readonly Buffer<Message> _buffer;
         const string ServiceBusConnectionString = "Endpoint=sb://sb-auxiliocovid-token-prd.servicebus.windows.net/;SharedAccessKeyName=sb-receiver;SharedAccessKey=yLix8SiYmlw91lcV8Uh8lYT0lKL8w7rftxbghkdc+Fw=;";
         const string QueueName = "queueauxiliocovidtokenprd";
         static IQueueClient queueClient;
@@ -30,6 +31,7 @@ namespace WindowsService
         public Worker(ILogger<Worker> logger, TelemetryClient _telemetryClient)
         {
             _logger = logger;
+            _buffer = new SMSWorker.Buffer<Message>(3000, 1000, _buffer_BufferReady);
             queueClient = new QueueClient(ServiceBusConnectionString, QueueName);
             telemetryClient = _telemetryClient;
 
@@ -41,6 +43,38 @@ namespace WindowsService
             }
         }
 
+        private async Task _buffer_BufferReady(Message[] items)
+        {
+            RequestTelemetry requestTelemetry = new RequestTelemetry { Name = "Envio SMS para API: " };
+            var operation = telemetryClient.StartOperation(requestTelemetry);
+
+            try
+            {
+                int i = 100 / new Random().Next(0, 5);
+
+                //TODO: Implementar o envio de SMS
+                await Task.Delay(1000);
+
+                // Complete the message so that it is not received again.
+                // This can be done only if the queueClient is created in ReceiveMode.PeekLock mode (which is default).
+                foreach (var message in items)
+                    await queueClient.CompleteAsync(message.SystemProperties.LockToken);
+
+                // Note: Use the cancellationToken passed as necessary to determine if the queueClient has already been closed.
+                // If queueClient has already been Closed, you may chose to not call CompleteAsync() or AbandonAsync() etc. calls 
+                // to avoid unnecessary exceptions.
+                operation.Telemetry.Success = true;
+            }
+            catch (Exception ex)
+            {
+                operation.Telemetry.Success = false;
+                telemetryClient.TrackException(ex);
+            }
+            finally
+            {
+                telemetryClient.StopOperation(operation);
+            }
+        }
 
         void RegisterOnMessageHandlerAndReceiveMessages()
         {
@@ -62,7 +96,6 @@ namespace WindowsService
 
         async Task ProcessMessagesAsync(Message message, CancellationToken token)
         {
-            RequestTelemetry requestTelemetry = new RequestTelemetry { Name = "Envio SMS para API: "};
             //var rootId = message.UserProperties["RootId"].ToString();
             //var parentId = message.UserProperties["ParentId"].ToString();
             //// Get the operation ID from the Request-Id (if you follow the HTTP Protocol for Correlation).
@@ -71,39 +104,7 @@ namespace WindowsService
 
             // Process the message
             Console.WriteLine($"Received message: SequenceNumber:{message.SystemProperties.SequenceNumber} Body:{Encoding.UTF8.GetString(message.Body)}");
-
-            var operation = telemetryClient.StartOperation(requestTelemetry);
-
-            try
-            {
-                
-               
-
-
-                int i = 100 / new Random().Next(0, 5);
-
-                //TODO: Implementar o envio de SMS
-                await Task.Delay(1000);
-
-                // Complete the message so that it is not received again.
-                // This can be done only if the queueClient is created in ReceiveMode.PeekLock mode (which is default).
-                await queueClient.CompleteAsync(message.SystemProperties.LockToken);
-
-                // Note: Use the cancellationToken passed as necessary to determine if the queueClient has already been closed.
-                // If queueClient has already been Closed, you may chose to not call CompleteAsync() or AbandonAsync() etc. calls 
-                // to avoid unnecessary exceptions.
-                operation.Telemetry.Success = true;
-            }
-            catch (Exception ex)
-            {
-                operation.Telemetry.Success = false;
-                telemetryClient.TrackException(ex);
-            }
-            finally
-            {
-                telemetryClient.StopOperation(operation);
-            }
-
+            _buffer.Add(message);
         }
 
         Task ExceptionReceivedHandler(ExceptionReceivedEventArgs exceptionReceivedEventArgs)
